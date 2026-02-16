@@ -2,26 +2,37 @@
   font-family: "IBM Plex Sans", "Segoe UI", "Helvetica Neue", sans-serif;
   line-height: 1.5;
   font-weight: 400;
-  color-scheme: dark;
-  background-color: #0b1220;
+
+  /* 👇 CHANGED: Light Mode settings */
+  color-scheme: light;
+  background-color: #F9FAFB; /* Light Gray Background */
+  
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 
-  --text-primary: #e5e7eb;
-  --text-muted: #9ca3af;
-  --surface-1: #111827;
-  --surface-2: #1f2937;
-  --surface-3: #1f2a3a;
-  --border-subtle: #243042;
-  --accent: #b91c1c;
-  --accent-soft: rgba(185, 28, 28, 0.16);
-  --danger: #b91c1c;
-  --danger-hover: #991b1b;
+  /* 👇 CHANGED: Text Colors (Dark text for readability) */
+  --text-primary: #111827; /* Deep Black/Gray */
+  --text-muted: #6B7280;   /* Soft Gray */
+
+  /* 👇 CHANGED: Surfaces (White cards instead of dark) */
+  --surface-1: #FFFFFF;    /* Pure White */
+  --surface-2: #F3F4F6;    /* Light Gray */
+  --surface-3: #E5E7EB;    /* Borders/Dividers */
+  --border-subtle: #E5E7EB;
+
+  /* 👇 CHANGED: Red & Green Accents (Tweaked for White BG) */
+  --accent: #DC2626;       /* Fire Engine Red */
+  --accent-soft: rgba(220, 38, 38, 0.1); /* Light Red BG */
+  
+  --danger: #DC2626;
+  --danger-hover: #B91C1C;
+  
   --success: #059669;
-  --success-soft: rgba(5, 150, 105, 0.16);
-  --warning: #d97706;
+  --success-soft: #D1FAE5; /* Mint Green BG */
+  
+  --warning: #D97706;
 }
 
 *,
@@ -33,14 +44,16 @@
 body {
   margin: 0;
   min-height: 100vh;
-  background:
-    radial-gradient(circle at 15% 15%, rgba(17, 24, 39, 0.6), transparent 50%),
-    radial-gradient(circle at 85% 10%, rgba(31, 41, 55, 0.5), transparent 45%),
-    linear-gradient(180deg, #0b1220 0%, #111827 100%);
+  /* 👇 CHANGED: Removed Dark Gradients, kept it clean */
+  background-color: var(--surface-2); 
+  color: var(--text-primary);
 }
 
 #root {
   min-height: 100vh;
+  /* Optional: Center content slightly */
+  display: flex;
+  flex-direction: column;
 }
 
 input,

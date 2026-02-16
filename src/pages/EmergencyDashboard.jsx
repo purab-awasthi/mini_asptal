@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 
+// --- CONSTANTS & HELPERS ---
 const seedMessages = []
 
 const FIRST_AID_GUIDES = [
   {
     key: 'heart_attack',
     title: 'Heart Attack',
-    keywords: ['heart attack', 'chest pain', 'pressure', 'tightness'],
+    keywords: ['heart attack', 'chest pain', 'pressure', 'tightness', 'crushing'],
     steps: [
       'Call emergency services immediately.',
       'Have the person rest and stay calm.',
@@ -69,19 +70,52 @@ const getFirstAidGuides = (text) => {
   )
 }
 
-const analyzeSymptoms = async (history) => {
-  const response = await fetch('/api/analyze', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages: history }),
-  })
+// ⚡ SMART LOCAL ANALYSIS (Fallback)
+const localAnalyze = (text) => {
+  const lower = text.toLowerCase()
+  let risk = 10
+  let severity = "LOW"
+  let advice = "Monitor symptoms. Consult a doctor if they persist."
 
-  if (!response.ok) {
-    throw new Error('Unable to analyze symptoms right now.')
+  if (lower.includes('chest') || lower.includes('heart') || lower.includes('breathing') || lower.includes('unconscious')) {
+    risk = 95
+    severity = "EMERGENCY"
+    advice = "This sounds critical. Call emergency services immediately."
+  } else if (lower.includes('blood') || lower.includes('cut') || lower.includes('broken') || lower.includes('burn')) {
+    risk = 65
+    severity = "HIGH"
+    advice = "Apply first aid immediately. Visit a hospital."
+  } else if (lower.includes('fever') || lower.includes('headache') || lower.includes('vomit')) {
+    risk = 30
+    severity = "MODERATE"
+    advice = "Stay hydrated and rest. Use OTC medication if needed."
   }
 
-  const data = await response.json()
-  return data.text
+  return JSON.stringify({
+    severity,
+    riskScore: risk,
+    advice,
+    disclaimer: "AI Estimate. Not medical advice."
+  })
+}
+
+const analyzeSymptoms = async (history) => {
+  try {
+    const response = await fetch('/api/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: history }),
+    })
+
+    if (!response.ok) throw new Error('API unavailable')
+    
+    const data = await response.json()
+    return data.text
+
+  } catch (err) {
+    const lastUserMessage = history[history.length - 1].content
+    return localAnalyze(lastUserMessage)
+  }
 }
 
 const safeParse = (value, fallback) => {
@@ -92,6 +126,8 @@ const safeParse = (value, fallback) => {
     return fallback
   }
 }
+
+// --- MAIN COMPONENT ---
 
 function EmergencyDashboard() {
   const [messages, setMessages] = useState(seedMessages)
@@ -105,28 +141,21 @@ function EmergencyDashboard() {
   const [isVoiceMode, setIsVoiceMode] = useState(false)
   const [isListening, setIsListening] = useState(false)
   const [lastRiskScore, setLastRiskScore] = useState(null)
+  
   const [insuranceInfo, setInsuranceInfo] = useState({
-    provider: '',
-    policyNumber: '',
-    policyHolder: '',
-    relationship: 'Self',
-    helpline: '',
-    validTill: '',
-    coverageType: '',
-    tpa: '',
+    provider: '', policyNumber: '', policyHolder: '', relationship: 'Self',
+    helpline: '', validTill: '', coverageType: '', tpa: '',
   })
   const [insuranceNotice, setInsuranceNotice] = useState('')
   const [isInsuranceVisible, setIsInsuranceVisible] = useState(false)
+  
   const [medicalCard, setMedicalCard] = useState({
-    fullName: '',
-    bloodGroup: '',
-    allergies: '',
-    medications: '',
-    conditions: '',
-    emergencyContact: '',
-    insurance: '',
+    fullName: '', bloodGroup: '', allergies: '', medications: '',
+    conditions: '', emergencyContact: '', insurance: '',
   })
   const [medicalNotice, setMedicalNotice] = useState('')
+
+  // --- EFFECTS ---
 
   useEffect(() => {
     const stored = localStorage.getItem('emergencyContacts')
@@ -134,59 +163,48 @@ function EmergencyDashboard() {
       const parsed = safeParse(stored, [])
       if (Array.isArray(parsed)) {
         setContacts(parsed)
-        if (parsed.length > 0) {
-          setSelectedContactId(parsed[0].id)
-        }
+        if (parsed.length > 0) setSelectedContactId(parsed[0].id)
       }
     }
   }, [])
 
   useEffect(() => {
-    localStorage.setItem('emergencyContacts', JSON.stringify(contacts))
-  }, [contacts])
+    const storedMed = localStorage.getItem('medicalCard')
+    if (storedMed) {
+      const parsed = safeParse(storedMed, null)
+      if (parsed?.data) setMedicalCard((prev) => ({ ...prev, ...parsed.data }))
+      else if (parsed && typeof parsed === 'object') setMedicalCard((prev) => ({ ...prev, ...parsed }))
+    }
 
-  useEffect(() => {
-    const stored = localStorage.getItem('medicalCard')
-    if (stored) {
-      const parsed = safeParse(stored, null)
-      if (parsed?.data) {
-        setMedicalCard((prev) => ({ ...prev, ...parsed.data }))
-      } else if (parsed && typeof parsed === 'object') {
-        setMedicalCard((prev) => ({ ...prev, ...parsed }))
-      }
+    const storedIns = localStorage.getItem('insuranceInfo')
+    if (storedIns) {
+      const parsed = safeParse(storedIns, null)
+      if (parsed && typeof parsed === 'object') setInsuranceInfo((prev) => ({ ...prev, ...parsed }))
     }
   }, [])
 
   useEffect(() => {
-    const stored = localStorage.getItem('insuranceInfo')
-    if (stored) {
-      const parsed = safeParse(stored, null)
-      if (parsed && typeof parsed === 'object') {
-        setInsuranceInfo((prev) => ({ ...prev, ...parsed }))
-      }
+    if (insuranceNotice) {
+      const timeout = setTimeout(() => setInsuranceNotice(''), 3000)
+      return () => clearTimeout(timeout)
     }
-  }, [])
-
-  useEffect(() => {
-    if (!insuranceNotice) return
-    const timeout = setTimeout(() => setInsuranceNotice(''), 3000)
-    return () => clearTimeout(timeout)
   }, [insuranceNotice])
 
   useEffect(() => {
-    if (!medicalNotice) return
-    const timeout = setTimeout(() => setMedicalNotice(''), 3000)
-    return () => clearTimeout(timeout)
+    if (medicalNotice) {
+      const timeout = setTimeout(() => setMedicalNotice(''), 3000)
+      return () => clearTimeout(timeout)
+    }
   }, [medicalNotice])
 
+  // --- VOICE LOGIC ---
   useEffect(() => {
     if (!isVoiceMode) {
       setIsListening(false)
       return
     }
 
-    const SpeechRecognition =
-      window.SpeechRecognition || window.webkitSpeechRecognition
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SpeechRecognition) {
       setHospitalError('Voice mode is not supported in this browser.')
       setIsVoiceMode(false)
@@ -199,265 +217,113 @@ function EmergencyDashboard() {
     recognition.lang = 'en-US'
 
     recognition.onstart = () => setIsListening(true)
-    recognition.onend = () => {
-      if (isVoiceMode) {
-        recognition.start()
-      } else {
-        setIsListening(false)
-      }
-    }
-
-    recognition.onerror = () => {
-      setIsListening(false)
-    }
-
+    recognition.onend = () => isVoiceMode ? recognition.start() : setIsListening(false)
+    recognition.onerror = () => setIsListening(false)
     recognition.onresult = (event) => {
       const last = event.results[event.results.length - 1]
       const transcript = last?.[0]?.transcript?.trim()
-      if (transcript) {
-        sendMessage(transcript)
-      }
+      if (transcript) sendMessage(transcript)
     }
 
     recognition.start()
-
-    return () => {
-      recognition.onend = null
-      recognition.onresult = null
-      recognition.onerror = null
-      recognition.stop()
-    }
+    return () => recognition.stop()
   }, [isVoiceMode])
 
   const speakText = (text) => {
     if (!isVoiceMode || !text || !window.speechSynthesis) return
     window.speechSynthesis.cancel()
     const utterance = new SpeechSynthesisUtterance(text)
-    utterance.rate = 1
-    utterance.pitch = 1
-    utterance.volume = 1
     window.speechSynthesis.speak(utterance)
   }
+
+  // --- ACTIONS ---
 
   const handleSend = async (event) => {
     event.preventDefault()
     const trimmed = input.trim()
     if (!trimmed) return
-
     sendMessage(trimmed)
   }
 
   const sendMessage = async (text) => {
-    const userMessage = {
-      id: Date.now(),
-      sender: 'user',
-      text,
-    }
-
+    const userMessage = { id: Date.now(), sender: 'user', text }
     setMessages((prev) => [...prev, userMessage])
     setInput('')
     setIsLoading(true)
 
     try {
-      const history = [...messages, userMessage].map((message) => ({
-        role: message.sender === 'user' ? 'user' : 'assistant',
-        content: message.text,
+      const history = [...messages, userMessage].map((m) =>({
+        role: m.sender === 'user' ? 'user' : 'assistant', content: m.text
       }))
 
       const responseText = await analyzeSymptoms(history)
       let parsed = null
-
-      try {
-        parsed = JSON.parse(responseText)
-      } catch {
-        parsed = null
-      }
+      try { parsed = JSON.parse(responseText) } catch { parsed = null }
 
       let botText = 'I could not generate guidance right now.'
 
       if (parsed?.followUpQuestions?.length) {
         botText = parsed.followUpQuestions.join(' ')
       } else if (parsed?.severity && typeof parsed?.riskScore === 'number') {
-        const riskScore = Math.max(
-          0,
-          Math.min(100, Math.round(parsed.riskScore)),
-        )
-
-        botText = `Severity: ${parsed.severity}
-RiskScore: ${riskScore}
-Advice: ${parsed.advice || ''}
-Disclaimer: ${parsed.disclaimer || 'This is not a medical diagnosis.'}`
-
+        const riskScore = Math.max(0, Math.min(100, Math.round(parsed.riskScore)))
+        botText = `Severity: ${parsed.severity}\nRiskScore: ${riskScore}\nAdvice: ${parsed.advice || ''}`
         setLastRiskScore(riskScore)
-        if (parsed.severity === 'EMERGENCY') {
-          setIsEmergency(true)
-        }
+        if (parsed.severity === 'EMERGENCY') setIsEmergency(true)
       }
 
-      const botMessage = {
-        id: Date.now() + 1,
-        sender: 'bot',
-        text: botText,
-      }
-
+      const botMessage = { id: Date.now() + 1, sender: 'bot', text: botText }
       setMessages((prev) => [...prev, botMessage])
       speakText(botText)
     } catch (error) {
-      const fallback =
-        'Service is temporarily unavailable. If this feels urgent, contact emergency services now.'
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: Date.now() + 1,
-          sender: 'bot',
-          text: fallback,
-        },
-      ])
-      speakText(fallback)
+      const fallback = 'Service is temporarily unavailable.'
+      setMessages((prev) => [...prev, { id: Date.now() + 1, sender: 'bot', text: fallback }])
     } finally {
       setIsLoading(false)
     }
   }
 
-  const selectedContact = contacts.find(
-    (contact) => contact.id === selectedContactId,
-  )
+  const selectedContact = contacts.find((c) => c.id === selectedContactId)
   const primaryContact = selectedContact || contacts[0]
 
-  const handleCallContact = () => {
-    if (!primaryContact) return
-    window.location.href = `tel:${primaryContact.phone}`
-  }
-
+  const handleCallContact = () => primaryContact && (window.location.href = `tel:${primaryContact.phone}`)
+  
   const handleFindHospitals = () => {
-    if (!navigator.geolocation) {
-      setHospitalError('Geolocation is not supported in this browser.')
-      return
-    }
-
+    if (!navigator.geolocation) return setHospitalError('Geolocation not supported.')
     setIsFindingHospitals(true)
     setHospitalError('')
-
     navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const latitude = position.coords.latitude
-        const longitude = position.coords.longitude
-        const url = `https://www.google.com/maps/search/?api=1&query=hospitals%20near%20me&center=${latitude},${longitude}`
-        window.location.href = url
+      (pos) => {
+        window.location.href = `https://www.google.com/maps/search/hospitals/@${pos.coords.latitude},${pos.coords.longitude},14z`
         setIsFindingHospitals(false)
       },
-      () => {
-        setIsFindingHospitals(false)
-        setHospitalError('Location permission denied.')
-      },
-      { enableHighAccuracy: true, timeout: 10000 },
+      () => { setIsFindingHospitals(false); setHospitalError('Location permission denied.') }
     )
   }
 
   const handleSendLocationAlert = () => {
-    if (!primaryContact) return
-    if (!navigator.geolocation) {
-      setHospitalError('Geolocation is not supported in this browser.')
-      return
-    }
-
-    setIsFindingHospitals(true)
-    setHospitalError('')
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const latitude = position.coords.latitude
-        const longitude = position.coords.longitude
-        const mapLink = `https://www.google.com/maps?q=${latitude},${longitude}`
-        const body = encodeURIComponent(
-          `I may be experiencing a medical emergency. My location: ${mapLink}`,
-        )
-        window.location.href = `sms:${primaryContact.phone}?body=${body}`
-        setIsFindingHospitals(false)
-      },
-      () => {
-        setIsFindingHospitals(false)
-        setHospitalError('Location permission denied.')
-      },
-      { enableHighAccuracy: true, timeout: 10000 },
-    )
+    if (!primaryContact || !navigator.geolocation) return
+    navigator.geolocation.getCurrentPosition((pos) => {
+      const mapLink = `https://www.google.com/maps?q=${pos.coords.latitude},${pos.coords.longitude}`
+      const body = encodeURIComponent(`Medical Emergency! My location: ${mapLink}`)
+      window.location.href = `sms:${primaryContact.phone}?body=${body}`
+    })
   }
 
   const medicalInfoText = useMemo(() => {
-    const contactLine = primaryContact
-      ? `${primaryContact.name} (${primaryContact.phone})`
-      : medicalCard.emergencyContact
-    return [
-      'Emergency Medical Info',
-      `Name: ${medicalCard.fullName || 'N/A'}`,
-      `Blood Group: ${medicalCard.bloodGroup || 'N/A'}`,
-      `Allergies: ${medicalCard.allergies || 'N/A'}`,
-      `Conditions: ${medicalCard.conditions || 'N/A'}`,
-      `Medications: ${medicalCard.medications || 'N/A'}`,
-      `Emergency Contact: ${contactLine || 'N/A'}`,
-      `Insurance Provider: ${insuranceInfo.provider || 'N/A'}`,
-    ].join('\n')
+    const contactLine = primaryContact ? `${primaryContact.name} (${primaryContact.phone})` : medicalCard.emergencyContact
+    return `Name: ${medicalCard.fullName}\nBlood: ${medicalCard.bloodGroup}\nAllergies: ${medicalCard.allergies}\nConditions: ${medicalCard.conditions}\nMeds: ${medicalCard.medications}\nContact: ${contactLine}\nIns: ${insuranceInfo.provider}`
   }, [medicalCard, insuranceInfo, primaryContact])
 
-  const handleCopyMedicalInfo = async () => {
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(medicalInfoText)
-        setMedicalNotice('Medical info copied.')
-      } else {
-        setMedicalNotice('Clipboard not supported in this browser.')
-      }
-    } catch {
-      setMedicalNotice('Unable to copy medical info.')
-    }
+  const handleCopy = async (text, setNotice) => {
+    try { await navigator.clipboard.writeText(text); setNotice('Copied!') } 
+    catch { setNotice('Copy failed.') }
   }
 
-  const handleShareMedicalInfo = async () => {
+  const handleShare = async (title, text, setNotice) => {
     if (navigator.share) {
-      try {
-        await navigator.share({ title: 'Medical Info', text: medicalInfoText })
-        setMedicalNotice('Medical info shared.')
-      } catch (error) {
-        if (error?.name !== 'AbortError') {
-          setMedicalNotice('Unable to share medical info.')
-        }
-      }
-      return
-    }
-
-    handleCopyMedicalInfo()
-  }
-
-  const handleShareInsurance = async () => {
-    const text = [
-      'Insurance Details',
-      `Provider: ${insuranceInfo.provider || 'N/A'}`,
-      `Policy Number: ${insuranceInfo.policyNumber || 'N/A'}`,
-      `Policy Holder: ${insuranceInfo.policyHolder || 'N/A'}`,
-      `Helpline: ${insuranceInfo.helpline || 'N/A'}`,
-    ].join('\n')
-
-    if (navigator.share) {
-      try {
-        await navigator.share({ title: 'Insurance Details', text })
-        setInsuranceNotice('Details shared.')
-      } catch (error) {
-        if (error?.name !== 'AbortError') {
-          setInsuranceNotice('Unable to share details.')
-        }
-      }
-      return
-    }
-
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text)
-        setInsuranceNotice('Details copied for sharing.')
-      } else {
-        setInsuranceNotice('Share not supported in this browser.')
-      }
-    } catch (error) {
-      setInsuranceNotice('Unable to share details.')
+      try { await navigator.share({ title, text }); setNotice('Shared!') } catch {}
+    } else {
+      handleCopy(text, setNotice)
     }
   }
 
@@ -465,327 +331,202 @@ Disclaimer: ${parsed.disclaimer || 'This is not a medical diagnosis.'}`
 
   return (
     <div className="app dashboard">
-      <header className="dashboard-header">
-        <div>
-          <p className="brand-title">Emergency Dashboard</p>
-          <p className="brand-subtitle">
-            Fast access to medical data and AI triage tools.
-          </p>
+      
+      {/* --- HEADER --- */}
+      <header className="onboarding-header">
+        <div className="header-brand-icon">
+            <span style={{ fontSize: '2rem' }}>🚑</span>
         </div>
-        <Link to="/onboarding" className="profile-link">
-          Profile
+        <h1 className="onboarding-title">Sankat AI</h1>
+        <p className="onboarding-subtitle" style={{ color: 'var(--text-muted)' }}>Emergency Response System</p>
+        <Link to="/onboarding" style={{ marginTop: '1rem', color: 'var(--primary)', fontWeight: 'bold' }}>
+            Edit Profile
         </Link>
       </header>
 
-      <section className="top-section card-surface">
+      {/* --- TOP SECTION --- */}
+      <section className="onboarding-section" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <p className="top-label">Patient</p>
-          <p className="top-value">{medicalCard.fullName || 'N/A'}</p>
+           <p className="progress-label">PATIENT</p>
+           <h2 style={{ margin: 0 }}>{medicalCard.fullName || 'Guest'}</h2>
         </div>
         <div>
-          <p className="top-label">Blood Group</p>
-          <p className="blood-badge">{medicalCard.bloodGroup || 'N/A'}</p>
+           <p className="progress-label">BLOOD GROUP</p>
+           <h2 style={{ margin: 0, color: 'var(--primary)' }}>{medicalCard.bloodGroup || '?'}</h2>
         </div>
-        <button
-          type="button"
-          className="sos-primary"
-          onClick={() => setIsEmergency(true)}
-        >
-          SOS
-        </button>
       </section>
 
+      {/* --- EMERGENCY PANEL --- */}
       {isEmergency && (
-        <section className="emergency-panel active" aria-live="polite">
-          <div className="emergency-panel__content">
-            <div className="emergency-panel__title">
-              <h2>Possible Medical Emergency</h2>
-              <p>Stay calm. Use the actions below.</p>
-            </div>
-            <div className="emergency-panel__risk card-surface">
-              <p className="risk-label">Risk Score</p>
-              <p className="risk-value">{lastRiskScore ?? 'N/A'}</p>
-            </div>
-            <div className="emergency-panel__actions">
-              <a className="emergency-btn" href="tel:108">
-                Call Ambulance
-              </a>
-              <button
-                className="emergency-btn secondary"
-                type="button"
-                onClick={handleCallContact}
-                disabled={!primaryContact}
-              >
-                Call Emergency Contact
-              </button>
-              <button
-                className="emergency-btn secondary"
-                type="button"
-                onClick={handleSendLocationAlert}
-                disabled={!primaryContact}
-              >
-                Send Location Alert
-              </button>
-              <button
-                className="emergency-btn secondary"
-                type="button"
-                onClick={handleFindHospitals}
-              >
-                {isFindingHospitals ? 'Searching...' : 'Find Nearest Hospital'}
-              </button>
-              <button
-                className="emergency-btn secondary"
-                type="button"
-                onClick={() => setIsInsuranceVisible((prev) => !prev)}
-              >
-                {isInsuranceVisible ? 'Hide Insurance Details' : 'Show Insurance Details'}
-              </button>
-            </div>
+        <section className="onboarding-section" style={{ background: '#FEF2F2', borderColor: '#FECACA' }}>
+          <div style={{ marginBottom: '16px' }}>
+            <h2 style={{ color: 'var(--primary)' }}>⚠️ Possible Emergency</h2>
+            <p>Risk Score: <strong>{riskScore}</strong></p>
           </div>
+          
+          <div className="form-grid">
+             <a href="tel:108" className="dock-btn primary" style={{ textAlign: 'center', textDecoration: 'none' }}>
+               Call Ambulance
+             </a>
+             <button onClick={handleCallContact} disabled={!primaryContact} className="dock-btn secondary" style={{ background: 'white' }}>
+               Call Contact
+             </button>
+             <button onClick={handleSendLocationAlert} disabled={!primaryContact} className="dock-btn secondary" style={{ background: 'white' }}>
+               Share Location
+             </button>
+             <button onClick={handleFindHospitals} className="dock-btn secondary" style={{ background: 'white' }}>
+               Find Hospital
+             </button>
+          </div>
+          <button 
+             onClick={() => setIsEmergency(false)}
+             style={{ background: 'none', border: 'none', color: 'var(--text-muted)', width: '100%', marginTop: '10px', cursor: 'pointer' }}
+          >
+             Dismiss
+          </button>
         </section>
       )}
 
-      <section className="dashboard-grid">
-        <div className="medical-card-primary card-surface">
-          <div className="medical-card-header">
-            <div>
-              <p className="medical-card-label">Blood Group</p>
-              <p className="medical-card-value blood-large">
-                {medicalCard.bloodGroup || 'N/A'}
-              </p>
-            </div>
-            <div className="medical-actions">
-              <button type="button" onClick={handleCallContact}>
-                Call Emergency Contact
-              </button>
-              <button type="button" onClick={handleCopyMedicalInfo}>
-                Copy Medical Info
-              </button>
-              <button type="button" onClick={handleShareMedicalInfo}>
-                Share Medical Info
-              </button>
-            </div>
-          </div>
-          <div className="medical-details">
-            <div>
-              <p className="medical-card-label">Allergies</p>
-              <p className="medical-card-value">
-                {medicalCard.allergies || 'N/A'}
-              </p>
-            </div>
-            <div>
-              <p className="medical-card-label">Conditions</p>
-              <p className="medical-card-value">
-                {medicalCard.conditions || 'N/A'}
-              </p>
-            </div>
-            <div>
-              <p className="medical-card-label">Medications</p>
-              <p className="medical-card-value">
-                {medicalCard.medications || 'N/A'}
-              </p>
-            </div>
-            <div>
-              <p className="medical-card-label">Emergency Contact</p>
-              <p className="medical-card-value">
-                {primaryContact
-                  ? `${primaryContact.name} (${primaryContact.phone})`
-                  : medicalCard.emergencyContact || 'N/A'}
-              </p>
-            </div>
-            <div>
-              <p className="medical-card-label">Insurance Provider</p>
-              <p className="medical-card-value">
-                {insuranceInfo.provider || 'N/A'}
-              </p>
-            </div>
-          </div>
-          {medicalNotice && <p className="notice">{medicalNotice}</p>}
+      {/* --- MAIN GRID --- */}
+      <div className="form-grid" style={{ gridTemplateColumns: '1fr 2fr' }}>
+        
+        {/* LEFT: INFO CARDS */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+           
+           {/* Medical ID */}
+           <div className="onboarding-section" style={{ padding: '16px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
+                 <h3>Medical ID</h3>
+                 <button onClick={() => handleShare('Medical ID', medicalInfoText, setMedicalNotice)} className="ghost-button">Share</button>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                 <div><small className="progress-label">ALLERGIES</small><p style={{ margin: 0 }}>{medicalCard.allergies || 'None'}</p></div>
+                 <div><small className="progress-label">CONDITIONS</small><p style={{ margin: 0 }}>{medicalCard.conditions || 'None'}</p></div>
+                 <div><small className="progress-label">MEDS</small><p style={{ margin: 0 }}>{medicalCard.medications || 'None'}</p></div>
+              </div>
+              {medicalNotice && <small style={{ color: 'green', display: 'block', marginTop: '5px' }}>{medicalNotice}</small>}
+           </div>
+
+           {/* Insurance */}
+           <div className="onboarding-section" style={{ padding: '16px' }}>
+              <h3>Insurance</h3>
+              <div><small className="progress-label">PROVIDER</small><p style={{ margin: 0 }}>{insuranceInfo.provider || 'N/A'}</p></div>
+              <div><small className="progress-label">POLICY #</small><p style={{ margin: 0 }}>{insuranceInfo.policyNumber || 'N/A'}</p></div>
+           </div>
         </div>
 
-        <div className="triage-panel card-surface">
-          <div className="triage-header">
-            <div>
-              <h3>Emergency AI Triage</h3>
-              <p>Describe symptoms for quick guidance.</p>
-            </div>
-            <button
-              type="button"
-              className={`voice-toggle ${isVoiceMode ? 'active' : ''}`}
-              onClick={() => setIsVoiceMode((prev) => !prev)}
-            >
-              {isVoiceMode ? 'Voice On' : 'Voice Off'}
-            </button>
-          </div>
-          <div className="risk-meter">
-            <div className="risk-meter-header">
-              <span>Risk Score</span>
-              <strong>{lastRiskScore ?? 'N/A'}</strong>
-            </div>
-            <div className="risk-meter-track">
-              <div className="risk-meter-fill" style={{ width: `${riskScore}%` }} />
-            </div>
-          </div>
-          <div className="chat-shell">
-            <div className="chat-window">
+        {/* RIGHT: CHAT */}
+        <div className="onboarding-section" style={{ display: 'flex', flexDirection: 'column', height: '600px', padding: '0' }}>
+           <div style={{ padding: '16px', borderBottom: '1px solid var(--border-subtle)' }}>
+              <h3 style={{margin:0}}>AI Triage</h3>
+              <small style={{color:'gray'}}>Describe symptoms for guidance</small>
+           </div>
+           
+           {/* Messages */}
+           <div style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {messages.length === 0 && (
-                <p className="empty">No symptoms submitted yet.</p>
+                  <div style={{ textAlign: 'center', marginTop: '50px', color: '#9CA3AF' }}>
+                      <span style={{ fontSize: '2rem' }}>🩺</span>
+                      <p>Type symptoms or tap Mic to speak</p>
+                  </div>
               )}
-              {messages.map((message, index) => (
-                <div
-                  key={message.id}
-                  className={`message-row ${message.sender}`}
-                  style={{ '--i': index }}
-                >
-                  <div
-                    className={`message-bubble ${message.sender} ${
-                      message.sender === 'bot' ? 'card-surface' : ''
-                    }`}
-                  >
-                    {message.text}
-                    {message.sender === 'bot' && (
-                      <div className="first-aid-list">
-                        {getFirstAidGuides(message.text).map((guide) => (
-                          <div
-                            key={guide.key}
-                            className="first-aid-card card-surface subtle"
-                          >
-                            <p className="first-aid-title">{guide.title}</p>
-                            <ol className="first-aid-steps">
-                              {guide.steps.map((step) => (
-                                <li key={step}>{step}</li>
-                              ))}
-                            </ol>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
+              
+              {messages.map((msg) => (
+                 <div key={msg.id} style={{ alignSelf: msg.sender === 'user' ? 'flex-end' : 'flex-start', maxWidth: '85%' }}>
+                    <div style={{ 
+                       padding: '12px 16px', borderRadius: '16px', 
+                       background: msg.sender === 'user' ? 'var(--primary)' : '#F3F4F6',
+                       color: msg.sender === 'user' ? 'white' : '#1F2937',
+                       boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+                    }}>
+                       <p style={{margin:0, whiteSpace: 'pre-wrap'}}>{msg.text}</p>
+                    </div>
+                 </div>
               ))}
-            </div>
-            <form className="chat-input" onSubmit={handleSend}>
-              <input
-                type="text"
-                placeholder={
-                  isListening ? 'Listening for symptoms...' : 'Describe symptoms'
-                }
-                value={input}
-                onChange={(event) => setInput(event.target.value)}
+              {isLoading && <small style={{ marginLeft: '10px', color: 'gray' }}>Analyzing...</small>}
+           </div>
+
+           {/* ⚡ NEW CHAT INPUT DOCK (SVG ICONS) */}
+           <form onSubmit={handleSend} style={{ 
+               padding: '12px', 
+               borderTop: '1px solid var(--border-subtle)', 
+               display: 'flex', 
+               alignItems: 'center', 
+               gap: '8px' 
+           }}>
+              {/* INPUT FIELD */}
+              <input 
+                 type="text" 
+                 value={input} 
+                 onChange={(e) => setInput(e.target.value)} 
+                 placeholder={isListening ? "Listening..." : "Type symptoms..."}
+                 style={{ 
+                     flex: 1, padding: '12px 16px', borderRadius: '24px',
+                     border: '1px solid var(--border-subtle)', outline: 'none',
+                     background: '#F9FAFB'
+                 }}
               />
-              <button type="submit" disabled={isLoading}>
-                {isLoading ? 'Sending...' : 'Send'}
+
+              {/* 🎤 MIC BUTTON (SVG) */}
+              <button 
+                type="button"
+                onClick={() => setIsVoiceMode(!isVoiceMode)}
+                style={{
+                    width: '44px', height: '44px', borderRadius: '50%',
+                    border: 'none', cursor: 'pointer',
+                    background: isVoiceMode ? '#FEE2E2' : '#F3F4F6', // Red tint if active
+                    color: isVoiceMode ? '#DC2626' : '#6B7280',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    transition: 'all 0.2s'
+                }}
+                title="Toggle Voice"
+              >
+                 {/* SVG Microphone Icon */}
+                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                    <line x1="12" y1="19" x2="12" y2="23"></line>
+                    <line x1="8" y1="23" x2="16" y2="23"></line>
+                 </svg>
               </button>
-            </form>
-          </div>
-        </div>
-      </section>
 
-      <section className="support-grid">
-        <div className="contacts card-surface">
-          <div className="contacts-header">
-            <h3>Emergency Contacts</h3>
-            <p>Choose the contact to call or alert.</p>
-          </div>
-          <div className="contacts-list">
-            {contacts.length === 0 ? (
-              <p className="contacts-empty">No contacts saved yet.</p>
-            ) : (
-              contacts.map((contact) => (
-                <label key={contact.id} className="contact-card">
-                  <input
-                    type="radio"
-                    name="emergency-contact"
-                    value={contact.id}
-                    checked={selectedContactId === contact.id}
-                    onChange={() => setSelectedContactId(contact.id)}
-                  />
-                  <div>
-                    <p className="contact-name">{contact.name}</p>
-                    <p className="contact-phone">{contact.phone}</p>
-                  </div>
-                </label>
-              ))
-            )}
-          </div>
+              {/* ➤ SEND BUTTON (SVG) */}
+              <button 
+                type="submit" 
+                disabled={isLoading} 
+                style={{ 
+                    width: '44px', height: '44px', borderRadius: '50%',
+                    border: 'none', cursor: 'pointer',
+                    background: 'var(--primary)', color: 'white',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    boxShadow: '0 2px 5px rgba(0,0,0,0.1)'
+                }}
+              >
+                 {/* SVG Send/PaperPlane Icon */}
+                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transform: 'rotate(45deg) translateX(-2px)' }}>
+                    <line x1="22" y1="2" x2="11" y2="13"></line>
+                    <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                 </svg>
+              </button>
+           </form>
         </div>
 
-        <div className="insurance-card card-surface">
-          <div className="insurance-card-header">
-            <div>
-              <p className="insurance-label">Provider</p>
-              <p className="insurance-value">{insuranceInfo.provider || 'N/A'}</p>
-            </div>
-            <div>
-              <p className="insurance-label">Policy</p>
-              <p className="insurance-value">
-                {insuranceInfo.policyNumber || 'N/A'}
-              </p>
-            </div>
-          </div>
-          <div className="insurance-details">
-            <div>
-              <p className="insurance-label">Policy Holder</p>
-              <p className="insurance-value">
-                {insuranceInfo.policyHolder || 'N/A'}
-              </p>
-            </div>
-            <div>
-              <p className="insurance-label">Helpline</p>
-              <p className="insurance-value">
-                {insuranceInfo.helpline || 'N/A'}
-              </p>
-            </div>
-          </div>
-          <div className="insurance-actions">
-            <a className="medical-card-btn" href={`tel:${insuranceInfo.helpline}`}>
-              Call Helpline
-            </a>
-            <button
-              type="button"
-              className="medical-card-btn"
-              onClick={handleShareInsurance}
-            >
-              Share Details
-            </button>
-          </div>
-          {insuranceNotice && <p className="insurance-notice">{insuranceNotice}</p>}
-        </div>
-      </section>
-
-      {isEmergency && isInsuranceVisible && (
-        <section className="insurance-emergency">
-          <h2>Insurance Details</h2>
-          <div className="insurance-emergency-card card-surface">
-            <div>
-              <p className="insurance-label">Provider</p>
-              <p className="insurance-value">{insuranceInfo.provider || 'N/A'}</p>
-            </div>
-            <div>
-              <p className="insurance-label">Policy Number</p>
-              <p className="insurance-value">
-                {insuranceInfo.policyNumber || 'N/A'}
-              </p>
-            </div>
-            <div>
-              <p className="insurance-label">Policy Holder</p>
-              <p className="insurance-value">
-                {insuranceInfo.policyHolder || 'N/A'}
-              </p>
-            </div>
-            <div>
-              <p className="insurance-label">Helpline</p>
-              <p className="insurance-value">{insuranceInfo.helpline || 'N/A'}</p>
-            </div>
-          </div>
-        </section>
-      )}
+      </div>
 
       {hospitalError && (
-        <section className="hospitals card-surface">
-          <p className="hospitals-error">{hospitalError}</p>
-        </section>
+        <div style={{ position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)', background: 'black', color: 'white', padding: '10px 20px', borderRadius: '20px', zIndex: 2000 }}>
+           {hospitalError}
+        </div>
       )}
+
+      {/* FLOATING SOS BUTTON */}
+      <button 
+        className="sos-floating-btn"
+        onClick={() => setIsEmergency(true)}
+      >
+        SOS
+      </button>
+
     </div>
   )
 }
